@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AIArmada\FilamentProducts\Resources;
 
+use AIArmada\CommerceSupport\Support\FilamentPermission;
+use AIArmada\CommerceSupport\Support\MoneyFormatter;
 use AIArmada\CommerceSupport\Support\OwnerContext;
 use AIArmada\Customers\Models\Customer;
 use AIArmada\FilamentProducts\Resources\ProductResource\Pages;
@@ -27,11 +29,13 @@ use Filament\Forms\Components\MarkdownEditor;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
+use Filament\Forms\Components\SpatieTagsInput;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Group;
@@ -40,13 +44,13 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables;
+use Filament\Tables\Columns\SpatieTagsColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Number;
 use Illuminate\Support\Str;
 use Throwable;
-use UnitEnum;
 
 final class ProductResource extends Resource
 {
@@ -54,11 +58,17 @@ final class ProductResource extends Resource
 
     protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-cube';
 
-    protected static string | UnitEnum | null $navigationGroup = 'Catalog';
-
-    protected static ?int $navigationSort = 1;
-
     protected static ?string $recordTitleAttribute = 'name';
+
+    public static function getNavigationGroup(): ?string
+    {
+        return config('filament-products.navigation.group', 'Catalog');
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return (int) config('filament-products.navigation.resources.products', 1);
+    }
 
     /**
      * @return Builder<Product>
@@ -74,6 +84,36 @@ final class ProductResource extends Resource
         $count = static::getEloquentQuery()->where('status', ProductStatus::Active)->count();
 
         return $count > 0 ? (string) $count : null;
+    }
+
+    public static function canViewAny(): bool
+    {
+        return FilamentPermission::hasAbility('product.viewAny');
+    }
+
+    public static function canView(Model $record): bool
+    {
+        return FilamentPermission::hasAbility('product.view');
+    }
+
+    public static function canCreate(): bool
+    {
+        return FilamentPermission::hasAbility('product.create');
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return FilamentPermission::hasAbility('product.update');
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return FilamentPermission::hasAbility('product.delete');
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return static::canViewAny();
     }
 
     public static function form(Schema $schema): Schema
@@ -394,11 +434,10 @@ final class ProductResource extends Resource
                                     ->preload()
                                     ->searchable(),
 
-                                TagsInput::make('tags')
+                                (class_exists(SpatieTagsInput::class)
+                                    ? SpatieTagsInput::make('tags')
+                                    : TagsInput::make('tags'))
                                     ->label('Tags'),
-
-                                TagsInput::make('colors')
-                                    ->label('Colors'),
                             ]),
                     ])
                     ->columnSpan(['lg' => 1]),
@@ -470,7 +509,9 @@ final class ProductResource extends Resource
                     ->boolean()
                     ->toggleable(),
 
-                Tables\Columns\TextColumn::make('tags')
+                (class_exists(SpatieTagsColumn::class)
+                    ? SpatieTagsColumn::make('tags')
+                    : Tables\Columns\TextColumn::make('tags')->state(fn (Product $record): string => $record->tags->pluck('name')->implode(', ')))
                     ->label('Tags')
                     ->badge()
                     ->separator(',')
@@ -526,14 +567,22 @@ final class ProductResource extends Resource
                     ->icon('heroicon-o-document-duplicate')
                     ->authorize(fn (Product $record): bool => auth()->user()?->can('duplicate', $record) ?? false)
                     ->action(function (Product $record) {
-                        $newProduct = $record->replicate();
-                        $newProduct->name = $record->name . ' (Copy)';
-                        $newProduct->slug = $record->slug . '-copy-' . time();
-                        $newProduct->sku = $record->sku ? $record->sku . '-COPY' : null;
-                        $newProduct->status = ProductStatus::Draft;
-                        $newProduct->save();
+                        try {
+                            $newProduct = $record->replicate();
+                            $newProduct->name = $record->name . ' (Copy)';
+                            $newProduct->slug = $record->slug . '-copy-' . time();
+                            $newProduct->sku = $record->sku ? $record->sku . '-COPY' : null;
+                            $newProduct->status = ProductStatus::Draft;
+                            $newProduct->save();
 
-                        return redirect(static::getUrl('edit', ['record' => $newProduct]));
+                            return redirect(static::getUrl('edit', ['record' => $newProduct]));
+                        } catch (Throwable $e) {
+                            Notification::make()
+                                ->title('Duplicate failed')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
                     }),
             ])
             ->bulkActions([
@@ -542,12 +591,16 @@ final class ProductResource extends Resource
                     BulkAction::make('activate')
                         ->label('Activate')
                         ->icon('heroicon-o-check-circle')
+                        ->requiresConfirmation()
+                        ->authorize(fn (): bool => auth()->user()?->can('updateAny', Product::class) ?? false)
                         ->action(
                             fn (Collection $records) => $records->each->update(['status' => ProductStatus::Active])
                         ),
                     BulkAction::make('draft')
                         ->label('Set to Draft')
                         ->icon('heroicon-o-pencil')
+                        ->requiresConfirmation()
+                        ->authorize(fn (): bool => auth()->user()?->can('updateAny', Product::class) ?? false)
                         ->action(
                             fn (Collection $records) => $records->each->update(['status' => ProductStatus::Draft])
                         ),
@@ -663,7 +716,7 @@ final class ProductResource extends Resource
 
     private static function formatCurrency(int $amountMinor, ?string $currency): string
     {
-        return Number::currency($amountMinor / 100, $currency ?? 'MYR');
+        return MoneyFormatter::formatMinor($amountMinor, $currency ?? 'MYR');
     }
 
     public static function getRelations(): array
