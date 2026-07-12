@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AIArmada\FilamentProducts\Resources\ProductResource\RelationManagers;
 
-use AIArmada\CommerceSupport\Support\OwnerQuery;
 use AIArmada\Pricing\Models\Price;
 use AIArmada\Pricing\Models\PriceList;
 use Filament\Actions\BulkActionGroup;
@@ -32,11 +31,6 @@ final class PricesRelationManager extends RelationManager
     protected static ?string $title = 'Price Lists';
 
     protected static ?string $recordTitleAttribute = 'price_list.name';
-
-    public static function getEloquentQuery(): Builder
-    {
-        return OwnerQuery::applyToEloquentBuilder(parent::getEloquentQuery());
-    }
 
     public function form(Schema $schema): Schema
     {
