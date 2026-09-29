@@ -26,8 +26,8 @@ title: Troubleshooting
 ```php
 // Check config/filament-products.php
 'features' => [
-    'collections' => true,
-    'attributes' => true,
+    'collections' => true, // false hides CollectionResource
+    'attributes' => true,  // false hides AttributeResource
 ],
 ```
 
@@ -184,8 +184,9 @@ dd($resolver->resolve());
 ### Verify Resource Registration
 
 ```php
-// Check which feature-flagged resources are registered
-dd(config('filament-products.features'));
+// Check what resources the panel actually has
+$panel = Filament::getPanel();
+dd($panel->getResources());
 ```
 
 ### Test Form Data Mutation
