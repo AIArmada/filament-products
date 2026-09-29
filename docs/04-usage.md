@@ -102,14 +102,12 @@ The Options relation manager follows the same capability rule. If `supports_vari
 
 ### Bulk Actions
 
-Available bulk actions on the product table (see [Bulk Edit](#bulk-edit)):
+Available bulk actions on the product table:
 
-- **Delete Selected**
-- **Activate**
-- **Set to Draft**
-- **Update Price**
-- **Update Visibility**
-- **Assign Categories**
+- **Delete Selected**: Delete multiple products
+- **Activate** / **Set to Draft**: Update status
+- **Update Price**: Adjust prices
+- **Change Visibility**: Update visibility
 
 ---
 
@@ -128,11 +126,7 @@ Categories display in a hierarchical tree structure showing parent-child relatio
 
 ### Managing Products
 
-`CategoryResource::getRelations()` returns `[]` — there is no products relation
-manager. The category table exposes a products count column, a parent filter,
-and an **Add Child** row action. Assign products to a category from the product
-side (Categories tab on the product form, or the **Assign Categories** bulk
-action).
+There is no Products relation manager on categories. Assign categories from the product form's multi-select instead.
 
 ---
 
@@ -141,8 +135,7 @@ action).
 ### Manual Collections
 
 1. Create collection with type "Manual"
-2. Add products from the collection form (owner-scoped `products` select,
-   validated in `CreateCollection` / `EditCollection`)
+2. Attach products in code via `$collection->products()->sync([...])` (there is no Products relation manager)
 
 ### Automatic Collections
 
@@ -158,8 +151,8 @@ action).
 ]
 ```
 
-**Supported Fields**: Any product database column
-**Supported Operators**: `=`, `!=`, `>`, `<`, `>=`, `<=`, `like`
+**Supported Fields**: The six named rules only — `price_min`, `price_max`, `type`, `category`, `tag`, `is_featured`.
+**Supported Operators**: The form has no operator input; conditions default to `=`.
 
 ---
 
@@ -172,7 +165,7 @@ action).
 3. Configure:
    - **Code**: Unique identifier (e.g., `material`, `fabric_weight`)
    - **Name**: Display name
-   - **Type**: Text, Textarea, Number, Boolean, Select, MultiSelect, Date, DateTime
+   - **Type**: Text, Textarea, Number, Boolean, Select, Multiselect, Date, Color, Media
    - **Options**: For Select/MultiSelect types
    - **Validation**: Required, filterable, visible flags
 
@@ -188,50 +181,34 @@ Organize attributes into logical groups:
 Combine groups into sets for product types:
 
 1. Create set (e.g., "Apparel", "Electronics")
-2. Assign groups to set
-3. Assign set to products
+2. Assign attributes and groups to the set
 
 ---
 
-## Import / Export
+## Import/Export Actions
 
-There is no import/export page. Import, export, and template download are
-header actions on the product list table (`ProductsTable::configure()`):
+Import and export live as header actions on the products table, not a separate page.
 
 ### Exporting Products
 
-1. Open the product list (`/admin/products`)
-2. Click **Export**
-3. Tick the fields to export (name, SKU, slug, description, short description,
-   currency, price, compare price, cost, weight, status, type, visibility,
-   is_featured, is_taxable, requires_shipping, tax_class)
-4. Optionally filter by status
-5. Click **Export** to stream the CSV
+1. Open the products list
+2. Click "Export"
+3. Choose fields to export (CSV)
 
 ### Importing Products
 
-1. Open the product list
-2. Click **Import**
-3. Upload a CSV file (max size from `filament-products.import.max_file_kb`)
-4. Toggle **Update Existing Products** to match rows by SKU
-5. Toggle **Skip Errors** to continue past bad rows
-6. Click **Import**
+1. Open the products list
+2. Click "Import"
+3. Upload the CSV file
+4. Toggle "Update Existing Products" (match by SKU) and "Skip Errors" as needed
+5. Confirm to run the import
 
 **CSV Format Requirements**:
 - UTF-8 encoding
 - Header row required
-- Prices in cents
+- Prices in major units (converted to cents on import)
 
-**Import guards**: files with more rows than `filament-products.import.max_rows`
-are rejected before any row is written. New rows require a name and a numeric
-price; invalid status, type, visibility, or currency cells are reported as row
-errors instead of silently defaulting. Updates match by SKU and leave blank
-cells unchanged. With "Skip Errors" off, the whole import runs in one
-transaction and rolls back on the first bad row. Exports stream row by row, so
-large catalogs do not exhaust memory.
-
-A **Download CSV Template** header action emits a starter CSV with the expected
-header row.
+**Import guards**: files larger than `import.max_rows` are rejected before any row is written. New rows require a name and a numeric price; invalid status, type, visibility, or currency cells are reported as row errors instead of silently defaulting. Updates match by SKU and leave blank cells unchanged. With "Skip Errors" off, the whole import runs in one transaction and rolls back on the first bad row. Exports stream row by row, so large catalogs do not exhaust memory.
 
 ---
 
@@ -252,26 +229,15 @@ Each prefix supports `viewAny`, `view`, `create`, `update`, and `delete`. Bulk a
 
 ---
 
-## Bulk Edit
+## Bulk Updates
 
-There is no bulk edit page. Bulk updates are table bulk actions on the product
-list, available after selecting rows.
+There is no separate bulk-edit page. Select rows on the products table and choose a bulk action:
 
-### Using Bulk Actions
+- **Activate** / **Set to Draft**: update status
+- **Update Price**: adjust prices
+- **Change Visibility**: update visibility
 
-1. Open the product list (`/admin/products`)
-2. Select the products to edit
-3. Choose a bulk action
-4. Fill in any required values and confirm
-
-### Available Bulk Actions
-
-- **Delete Selected**
-- **Activate** — sets `status` to Active
-- **Set to Draft** — sets `status` to Draft
-- **Update Price** — set, increase/decrease by percentage, or increase by amount
-- **Update Visibility**
-- **Assign Categories** — owner-scoped category assignment
+Categories, featured, and taxable flags are edited per product.
 
 ---
 
@@ -301,7 +267,7 @@ public function panel(Panel $panel): Panel
 | ProductStatsWidget | Total products, active count, draft count |
 | ProductTypeDistributionWidget | Products by type distribution |
 | CategoryDistributionChart | Categories with product counts |
-| TopSellingProductsWidget | Best-selling products by quantity |
+| TopSellingProductsWidget | Latest created products |
 
 ---
 
@@ -322,8 +288,7 @@ public static function getEloquentQuery(): Builder
 
 ### Validating Foreign IDs
 
-`AIArmada\CommerceSupport\Support\Filament\OwnerScopedIds::ensureAllowed()`
-validates submitted IDs:
+The `OwnerScopedIds` helper validates submitted IDs:
 
 ```php
 // In CreateProduct page
